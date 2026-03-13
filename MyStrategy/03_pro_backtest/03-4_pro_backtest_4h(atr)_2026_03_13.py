@@ -3,10 +3,9 @@ import sys
 import time
 from datetime import datetime
 
-import hkfdb
-
 import pandas as pd
 import numpy as np
+import pandas_ta_classic as ta
 import multiprocessing as mp
 
 import plotguy
@@ -18,6 +17,49 @@ from pathlib import Path
 pd.set_option('display.max_rows', None)
 pd.set_option('display.max_columns', None)
 pd.set_option('display.width', None)
+
+
+def generate_filepath(para_comb):
+    """
+    Generate filepath for saving backtest results
+    """
+    output_folder   = para_comb['output_folder']
+    file_format     = para_comb['file_format']
+    py_filename     = para_comb['py_filename']
+    reference_index = para_comb['reference_index']
+
+    # Extract key parameters for filename
+    code            = para_comb['code']
+    candle_dir      = para_comb['candle_dir']
+    candle_len      = para_comb['candle_len']
+    sma_len         = para_comb['sma_len']
+    sma_dir         = para_comb['sma_dir']
+    std_ratio_thres = para_comb['std_ratio_thres']
+
+    atr_len         = para_comb['atr_len']
+    tp_multiplier   = para_comb['tp_multiplier']
+    sl_multiplier   = para_comb['sl_multiplier']
+
+    cycle           = para_comb['cycle']
+    freq            = para_comb['freq']
+
+    # Extract symbol from code (e.g., 'BTC' from 'GN01_market_price_usd_ohlc_4h_BTC')
+    symbol = code.split('_')[-1]
+
+    # Create filename with parameters
+    filename = (
+        f"{py_filename}_{symbol}_{freq}_"
+        f"cd{candle_dir[:3]}_cl{candle_len}_"
+        f"sma{sma_len}_{sma_dir[:3]}_"
+        f"std{std_ratio_thres}_"
+        f"tpm{tp_multiplier}_slm{sl_multiplier}_cyc{cycle}_"
+        f"{reference_index:06d}.{file_format}"
+    )
+
+    # Create full path
+    save_path = os.path.join(output_folder, filename)
+
+    return save_path
 
 
 def backtest(para_comb):
@@ -43,8 +85,9 @@ def backtest(para_comb):
     sma_dir         = para_comb['sma_dir']
     std_ratio_thres = para_comb['std_ratio_thres']
 
-    tp              = para_comb['tp']
-    sl              = para_comb['sl']
+    atr_len         = para_comb['atr_len']
+    tp_multiplier   = para_comb['tp_multiplier']
+    sl_multiplier   = para_comb['sl_multiplier']
 
     cycle           = para_comb['cycle']
 
@@ -61,6 +104,8 @@ def backtest(para_comb):
     df['sma'] = df['close'].rolling(sma_len).mean()
     df['std'] = df['close'].rolling(sma_len).std()
     df['std_raito'] = (df['sma'] - df['close']) / df['std']
+    df['atr'] = ta.atr(df['high'], df['low'], df['close'], timeperiod=atr_len)
+
 
     # ========== initialization (function) ==========
 
@@ -106,6 +151,7 @@ def backtest(para_comb):
         now_candle = row['candle']
         now_sma = row['sma']
         now_std_raito = row['std_raito']
+        now_atr = row['atr']
 
         ##### commission #####
         if num_of_coin > 0:
@@ -149,8 +195,8 @@ def backtest(para_comb):
         else:
             num_of_res = int(freq[:-1])  # num of hours per cycle
         close_logic = (t_diff_hr / num_of_res) >= cycle
-        tp_cond = open_price != 0 and (now_close - open_price) > (tp * 0.01 * open_price)
-        sl_cond = open_price != 0 and (open_price - now_close) > (sl * 0.01 * open_price)
+        tp_cond = open_price != 0 and (now_close - open_price) > (now_atr * tp_multiplier)
+        sl_cond = open_price != 0 and (open_price - now_close) > (now_atr * sl_multiplier)
         last_index_cond = i == df.index[-1]
 
         ##### open position #####
@@ -173,7 +219,6 @@ def backtest(para_comb):
 
             num_of_trade += 1
             num_of_coin = 0
-            current_dir = 0
 
             if close_logic: df.at[i, 'logic'] = 'close_logic'
 
@@ -195,10 +240,25 @@ def backtest(para_comb):
     # if summary_mode:
     #     df = df[df['action'] != '']
 
-    save_path = plotguy.generate_filepath(para_comb)
+    save_path = generate_filepath(para_comb)
     print(f'Saving to: {save_path}')
     df.reset_index(inplace=True)
-    df.to_parquet(save_path)
+    df.to_csv(save_path)
+
+    return {
+        'reference_index': para_comb['reference_index'],
+        'net_profit': net_profit,
+        'num_of_trade': num_of_trade,
+        'code': code,
+        'std_ratio_thres': std_ratio_thres,
+        'sma_len': sma_len,
+        'sma_dir': sma_dir,
+        'candle_dir': candle_dir,
+        'candle_len': candle_len,
+        'cycle': cycle,
+        'sl_multiplier': sl_multiplier,
+        'tp_multiplier': tp_multiplier
+    }
 
 
 def get_hist_data(code_list, start_date):
@@ -215,10 +275,10 @@ def get_hist_data(code_list, start_date):
         raw_df = raw_df.set_index('datetime')
 
         df = raw_df.copy()
-        df.index = df.index.strftime('%Y-%m-%d')
         df = df.loc[start_date:]
 
         df['pct'] = df['close'].pct_change()
+
         df_dict[code] = df
 
     return df_dict
@@ -294,30 +354,30 @@ if __name__ == '__main__':
     # ========== configuration ==========
 
     start_date = '2024-01-01'
-    freq = '1D'
+    freq = '4h'
     market = 'crypto'
     sectype = 'perpetual'
-    file_format = 'parquet'
     summary_mode = False
     num_of_core = 16
     mp_mode = True
 
     initial_capital = 10000
 
+    file_format = 'csv'
     secondary_data_folder = '01_secondary_data'
     output_folder = '02_output_folder'
-    file_format = 'parquet'
+
     py_filename = os.path.basename(__file__).replace('.py', '')
 
     if not os.path.exists(secondary_data_folder): os.mkdir(secondary_data_folder)
     if not os.path.exists(output_folder): os.mkdir(output_folder)
 
     code_list = [
-        'GN01_market_price_usd_ohlc_24h_BTC',
-        'GN02_market_price_usd_ohlc_24h_ETH',
-        'GN03_market_price_usd_ohlc_24h_SUI',
-        'GN06_market_price_usd_ohlc_24h_SOL',
-        'GN08_market_price_usd_ohlc_24h_DOGE',
+        'GN01_market_price_usd_ohlc_4h_BTC',
+        # 'GN02_market_price_usd_ohlc_4h_ETH',
+        # 'GN03_market_price_usd_ohlc_4h_SOL',
+        # 'GN04_market_price_usd_ohlc_4h_SUI',
+        # 'GN05_market_price_usd_ohlc_4h_DOGE'
     ]
 
     para_dict = {
@@ -326,9 +386,12 @@ if __name__ == '__main__':
         'candle_len': [1, 2, 4],
         'sma_len': [10, 15, 20],
         'sma_dir': ['above', 'below', 'whatever'],
-        'std_ratio_thres': [1.0, 2.0, 2.5],
-        'tp': [3, 5, 7, 10],
-        'sl': [1, 2],
+        'std_ratio_thres': [1, 2, 2.5],
+
+        'atr_len': [3, 7, 14],
+        'tp_multiplier': [2, 3, 5],
+        'sl_multiplier': [1, 1.5, 2],
+
         'cycle': [10, 15, 20],
     }
 
@@ -344,20 +407,32 @@ if __name__ == '__main__':
 
     if mp_mode:
         pool = mp.Pool(processes=num_of_core)
-        pool.map(backtest, all_para_comb)
+        all_results = pool.map(backtest, all_para_comb)
         pool.close()
+        pool.join()
     else:
         for para_comb in all_para_comb:
-            backtest(para_comb)
+            result = backtest(para_comb)
+            all_results.append(result)
 
-    plotguy.generate_backtest_result(
-        all_para_combination=all_para_comb,
-        number_of_core=num_of_core
-    )
+    # 整理成 DataFrame
+    result_df = pd.DataFrame(all_results)
+    result_df = result_df.sort_values(by='net_profit', ascending=False)
 
-    app = plotguy.plot(
-        mode='equity_curves',
-        all_para_combination=all_para_comb
-    )
+    # 打印摘要
+    print("\n" + "=" * 50)
+    print("BACKTEST SUMMARY")
+    print("=" * 50)
+    print(f"\nTotal combinations tested: {len(result_df)}")
+    print(f"Best net profit: ${result_df['net_profit'].max():,.2f}")
+    print(f"Worst net profit: ${result_df['net_profit'].min():,.2f}")
+    print(f"Average net profit: ${result_df['net_profit'].mean():,.2f}")
+    print(f"\nTop 10 results:")
+    print(result_df.head(10).to_string())
 
-    app.run_server(port=8900)
+    # 保存 CSV
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    summary_file = os.path.join(output_folder, f"summary_{timestamp}.csv")
+    result_df.to_csv(summary_file, index=False)
+    print(f"\nResults saved to: {summary_file}")
+    print("=" * 50)

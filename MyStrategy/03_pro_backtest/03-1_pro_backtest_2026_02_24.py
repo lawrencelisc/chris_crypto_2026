@@ -128,7 +128,6 @@ def backtest(para_comb):
 
     last_realized_capital = initial_capital
 
-    current_dir = 0
     equity_value = 0
     realized_pnl = 0
     unrealized_pnl = 0
@@ -180,6 +179,8 @@ def backtest(para_comb):
             trade_logic = trade_logic and (now_close > now_sma) and now_std_raito < -1 * std_ratio_thres
         elif sma_dir == 'below':
             trade_logic = trade_logic and (now_close < now_sma) and now_std_raito > std_ratio_thres
+        elif sma_dir == 'whatever':
+            pass
 
         if trade_logic: df.at[i, 'logic'] = 'trade_logic'
 
@@ -371,10 +372,10 @@ if __name__ == '__main__':
 
     code_list = [
         'GN01_market_price_usd_ohlc_4h_BTC',
-        'GN02_market_price_usd_ohlc_4h_ETH',
-        'GN03_market_price_usd_ohlc_4h_SOL',
-        'GN04_market_price_usd_ohlc_4h_SUI',
-        'GN05_market_price_usd_ohlc_4h_DOGE'
+        # 'GN02_market_price_usd_ohlc_4h_ETH',
+        # 'GN03_market_price_usd_ohlc_4h_SOL',
+        # 'GN04_market_price_usd_ohlc_4h_SUI',
+        # 'GN05_market_price_usd_ohlc_4h_DOGE'
     ]
 
     para_dict = {

@@ -416,5 +416,5 @@ def main(csv_file):
 # ==========================================
 if __name__ == "__main__":
     # Use your CSV file path
-    csv_file = "result_chris/03-1_pro_backtest_2026_02_24_ETH_4h_cdpos_cl2_sma20_abo_std1.0_tp10_sl1_cyc10_004986.csv"
+    csv_file = "result_chris/03-4_pro_backtest_4h(atr)_2026_03_13_BTC_4h_cdneg_cl2_sma15_bel_std1_tpm3_slm2_cyc20_009791.csv"
     main(csv_file)

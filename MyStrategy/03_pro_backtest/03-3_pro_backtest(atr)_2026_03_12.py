@@ -91,7 +91,6 @@ def backtest(para_comb):
 
     last_realized_capital = initial_capital
 
-    current_dir = 0
     equity_value = 0
     realized_pnl = 0
     unrealized_pnl = 0
@@ -127,24 +126,23 @@ def backtest(para_comb):
 
 
         ##### equity value #####
-        unrealized_pnl = num_of_coin * (now_close - open_price) * current_dir - total_friction
+        unrealized_pnl = num_of_coin * (now_close - open_price) - total_friction
         equity_value   = last_realized_capital + unrealized_pnl
         net_profit     = round(equity_value - initial_capital, 2)
 
         trade_logic = False
-        signal_dir = 0
 
         if candle_dir == 'positive':
             trade_logic = now_candle > candle_len * 0.01
-            signal_dir = 1
         elif candle_dir == 'negative':
             trade_logic = now_candle < -1 * candle_len * 0.01
-            signal_dir = -1
 
         if sma_dir == 'above':
             trade_logic = trade_logic and (now_close > now_sma) and now_std_raito < -1 * std_ratio_thres
         elif sma_dir == 'below':
             trade_logic = trade_logic and (now_close < now_sma) and now_std_raito > std_ratio_thres
+        elif sma_dir == 'whatever':
+            pass
 
         if trade_logic: df.at[i, 'logic'] = 'trade_logic'
 
@@ -154,8 +152,8 @@ def backtest(para_comb):
         else:
             num_of_res = int(freq[:-1])  # num of hours per cycle
         close_logic = (t_diff_hr / num_of_res) >= cycle
-        tp_cond = open_price != 0 and ((now_close - open_price) * current_dir) > (now_atr * tp_multiplier)
-        sl_cond = open_price != 0 and ((open_price - now_close) * current_dir) > (now_atr * sl_multiplier)
+        tp_cond = open_price != 0 and (now_close - open_price) > (now_atr * tp_multiplier)
+        sl_cond = open_price != 0 and (open_price - now_close) > (now_atr * sl_multiplier)
         last_index_cond = i == df.index[-1]
 
         ##### open position #####
@@ -165,7 +163,6 @@ def backtest(para_comb):
 
             open_price = now_close
             open_t = now_t
-            current_dir = signal_dir
 
             df.at[i, 'action'] = 'open'
             df.at[i, 'open_price'] = open_price
@@ -179,7 +176,6 @@ def backtest(para_comb):
 
             num_of_trade += 1
             num_of_coin = 0
-            current_dir = 0
 
             if close_logic: df.at[i, 'logic'] = 'close_logic'
 
@@ -197,7 +193,6 @@ def backtest(para_comb):
         df.at[i, 'num_of_share'] = num_of_coin
         df.at[i, 'unrealized_pnl'] = unrealized_pnl
         df.at[i, 'net_profit'] = net_profit
-        df.at[i, 'dir'] = current_dir
 
     # if summary_mode:
     #     df = df[df['action'] != '']
@@ -335,11 +330,9 @@ if __name__ == '__main__':
         'sma_dir': ['above', 'below', 'whatever'],
         'std_ratio_thres': [1, 2, 2.5],
 
-        'atr_len': [7, 14],
-        'tp_multiplier': [3, 5],
-        # 'tp_multiplier': [3, 5, 10],
-        'sl_multiplier': [1.5, 2],
-        # 'sl_multiplier': [1.5, 2, 3],
+        'atr_len': [3, 7, 14],
+        'tp_multiplier': [2, 3, 5],
+        'sl_multiplier': [1, 1.5, 2],
 
         'cycle': [10, 15, 20],
     }
